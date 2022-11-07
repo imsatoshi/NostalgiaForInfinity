@@ -66,6 +66,10 @@ def timerange_fmt(value):
         Timerange("20220401", "20220501"),
         Timerange("20220501", "20220601"),
         Timerange("20220601", "20220701"),
+        Timerange("20220701", "20220801"),
+        Timerange("20220801", "20220901"),
+        Timerange("20220901", "20221001"),
+        Timerange("20221001", "20221101"),
     ),
     ids=timerange_fmt,
 )
