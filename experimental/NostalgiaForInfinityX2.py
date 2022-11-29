@@ -4,6 +4,7 @@ import rapidjson
 import freqtrade.vendor.qtpylib.indicators as qtpylib
 import numpy as np
 import talib.abstract as ta
+import pandas as pd
 import pandas_ta as pta
 from freqtrade.strategy.interface import IStrategy
 from freqtrade.strategy import merge_informative_pair
@@ -13,9 +14,11 @@ from freqtrade.persistence import Trade
 from datetime import datetime, timedelta
 import time
 from typing import Optional
+import warnings
 
 log = logging.getLogger(__name__)
 #log.setLevel(logging.DEBUG)
+warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
 
 #############################################################################################################
 ##                NostalgiaForInfinityX2 by iterativ                                                       ##
@@ -56,7 +59,7 @@ log = logging.getLogger(__name__)
 #############################################################################################################
 
 class NostalgiaForInfinityX2(IStrategy):
-    INTERFACE_VERSION = 2
+    INTERFACE_VERSION = 3
 
     def version(self) -> str:
         return "v0.0.1"
@@ -130,6 +133,9 @@ class NostalgiaForInfinityX2(IStrategy):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
+        if (('exit_profit_only' in self.config and self.config['exit_profit_only'])
+                or ('sell_profit_only' in self.config and self.config['sell_profit_only'])):
+            self.exit_profit_only = True
         if self.target_profit_cache is None:
             bot_name = ""
             if ('bot_name' in self.config):
@@ -956,6 +962,9 @@ class NostalgiaForInfinityX2(IStrategy):
         informative_4h['r_14'] = williams_r(informative_4h, period=14)
         informative_4h['r_480'] = williams_r(informative_4h, period=480)
 
+        # CTI
+        informative_4h['cti_20'] = pta.cti(informative_4h["close"], length=20)
+
         # S/R
         res_series = informative_4h['high'].rolling(window = 5, center=True).apply(lambda row: is_resistance(row), raw=True).shift(2)
         sup_series = informative_4h['low'].rolling(window = 5, center=True).apply(lambda row: is_support(row), raw=True).shift(2)
@@ -1358,6 +1367,7 @@ class NostalgiaForInfinityX2(IStrategy):
                     item_buy_logic.append((dataframe['tpct_change_2'] < 0.06))
                     item_buy_logic.append(dataframe['close_max_48'] < (dataframe['close'] * 1.3))
                     item_buy_logic.append(dataframe['hl_pct_change_36'] < 0.3)
+                    item_buy_logic.append(dataframe['hl_pct_change_24_1h'] < 3.0)
 
                     item_buy_logic.append(dataframe['ema_12_1h'] > dataframe['ema_26_1h'])
                     item_buy_logic.append(dataframe['ema_12_1h'] > dataframe['ema_200_1h'])
@@ -1372,6 +1382,7 @@ class NostalgiaForInfinityX2(IStrategy):
                     item_buy_logic.append(dataframe['ema_12_4h'] > dataframe['sma_26_4h'])
 
                     item_buy_logic.append(dataframe['cti_20_1h'] < 0.85)
+                    item_buy_logic.append(dataframe['cti_20_4h'] < 0.9)
 
                     item_buy_logic.append(dataframe['not_downtrend_1h'])
                     item_buy_logic.append(dataframe['not_downtrend_4h'])
@@ -1454,6 +1465,7 @@ class NostalgiaForInfinityX2(IStrategy):
                     item_buy_logic.append((dataframe['tpct_change_2'] < 0.06))
                     item_buy_logic.append(dataframe['close_max_48'] < (dataframe['close'] * 1.3))
                     item_buy_logic.append(dataframe['hl_pct_change_36'] < 0.3)
+                    item_buy_logic.append(dataframe['hl_pct_change_24_1h'] < 3.0)
 
                     item_buy_logic.append(dataframe['ema_12_1h'] > dataframe['ema_26_1h'])
                     item_buy_logic.append(dataframe['ema_12_1h'] > dataframe['ema_200_1h'])
@@ -1468,6 +1480,8 @@ class NostalgiaForInfinityX2(IStrategy):
                     item_buy_logic.append(dataframe['ema_12_4h'] > dataframe['sma_26_4h'])
 
                     item_buy_logic.append(dataframe['cti_20_1h'] < 0.85)
+                    item_buy_logic.append(dataframe['cti_20_4h'] < 0.9)
+                    item_buy_logic.append(dataframe['rsi_14_1h'] < 65.0)
 
                     item_buy_logic.append(dataframe['not_downtrend_1h'])
                     item_buy_logic.append(dataframe['not_downtrend_4h'])
@@ -1593,6 +1607,13 @@ class NostalgiaForInfinityX2(IStrategy):
     def confirm_trade_exit(self, pair: str, trade: Trade, order_type: str, amount: float,
                            rate: float, time_in_force: str, exit_reason: str,
                            current_time: datetime, **kwargs) -> bool:
+        # Allow force exits
+        if exit_reason != 'force_exit':
+            if self.exit_profit_only:
+                current_profit = ((rate - trade.open_rate) / trade.open_rate)
+                if (current_profit < self.exit_profit_offset):
+                    return False
+
         self._remove_profit_target(pair)
         return True
 
